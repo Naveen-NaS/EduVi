@@ -1,6 +1,8 @@
-export default function Loading() {
+"use client";
 
-  // Stack uses React Suspense, which will render this page while user data is being fetched.
-  // See: https://nextjs.org/docs/app/api-reference/file-conventions/loading
-  return <></>;
+import Loader from "@/components/ui/loader";
+
+export default function Loading() {
+  // App-level loading UI while routes/data are suspenseful
+  return <Loader fullscreen label="Loading" />;
 }

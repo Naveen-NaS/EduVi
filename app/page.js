@@ -66,7 +66,7 @@ const pop = {
 /* ---------- Main Page ---------- */
 export default function HomePage() {
   const user = useUser();
-  const ctaHref = user ? "/dashboard" : "/handler";
+  const ctaHref = user ? "/dashboard" : "/handler/sign-in";
   const [openExpert, setOpenExpert] = React.useState(null);
 
   return (
