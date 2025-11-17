@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import Image from "next/image";
 import { useUser } from "@stackframe/stack";
@@ -12,6 +12,7 @@ import { UserButton } from "@stackframe/stack";
 import RecordRTC from "recordrtc";
 import { StreamingTranscriber } from "assemblyai";
 import { getToken, AIModel } from "@/services/GlobalServices";
+import { updateConversation } from "@/convex/DiscussionRoom";
 
 function DiscussionRoom() {
   const roomId = useParams().roomId;
@@ -27,10 +28,12 @@ function DiscussionRoom() {
   const lastMessageEndRef = useRef(null);
   const audioContextRef = useRef(null);
   const mediaStreamRef = useRef(null);
+  const audioPlayerRef = useRef(null); // For TTS playback
   
   // Control refs
   const processingResponseRef = useRef(false);
   const isListeningPausedRef = useRef(false);
+  const isSpeakingRef = useRef(false); // Track if AI is speaking
   
   // Deduplication: track last finalized text with timestamp
   const lastFinalizedRef = useRef({ text: "", timestamp: 0 });
@@ -41,6 +44,12 @@ function DiscussionRoom() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("Disconnected");
   const [isAssistantTyping, setIsAssistantTyping] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false); // UI state for speaking
+  const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
+  const [allowGenerate, setAllowGenerate] = useState(false); // Show Generate only after disconnect
+  const [notification, setNotification] = useState(null); // { type: 'success'|'error', message: string }
+
+  const updateConversation = useMutation(api.DiscussionRoom.updateConversation);
 
   // Load expert data
   useEffect(() => {
@@ -56,7 +65,7 @@ function DiscussionRoom() {
       lastMessageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }, 50);
     return () => clearTimeout(timer);
-  }, [conversationHistory, livePartial, isAssistantTyping]);
+  }, [conversationHistory, livePartial, isAssistantTyping, isSpeaking]);
 
   // Simple text normalization for deduplication
   const normalizeText = (text) => {
@@ -71,6 +80,123 @@ function DiscussionRoom() {
         role: msg.role === "Assistant" ? "assistant" : "user",
         content: msg.content
       }));
+  }, []);
+
+  const handleGenerateNotes = useCallback(async () => {
+    if (!discussionRoomData) return;
+    try {
+      setIsGeneratingNotes(true);
+      const res = await fetch('/api/generateNotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId,
+          topic: discussionRoomData?.topic,
+          coachingOption: discussionRoomData?.coachingOption,
+          expertName: discussionRoomData?.expertName,
+          conversation: conversationHistory,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to generate notes/feedback');
+      const data = await res.json();
+      console.log('✅ Notes/Feedback generated & saved:', data);
+      setNotification({ type: 'success', message: 'Notes/Feedback generated successfully.' });
+      setTimeout(() => setNotification(null), 4000);
+      // Intentionally not showing a UI notification yet
+    } catch (e) {
+      console.error('❌ Notes/Feedback generation failed:', e);
+      setNotification({ type: 'error', message: 'Failed to generate notes/feedback.' });
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setIsGeneratingNotes(false);
+    }
+  }, [discussionRoomData, conversationHistory, roomId]);
+
+  // Text-to-Speech function
+  const speakText = useCallback(async (text, expertName) => {
+    try {
+      isSpeakingRef.current = true;
+      setIsSpeaking(true);
+      
+      console.log("🔊 Generating speech for:", text.substring(0, 50) + "...");
+
+      // Call your TTS API endpoint
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text,
+          expertName,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('TTS request failed');
+      }
+
+      const data = await response.json();
+
+      if (!data.success || !data.audio) {
+        throw new Error('Invalid TTS response');
+      }
+
+      // Convert base64 to blob
+      const audioBlob = await fetch(`data:${data.mimeType};base64,${data.audio}`).then(r => r.blob());
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      // Create audio element and play
+      if (!audioPlayerRef.current) {
+        audioPlayerRef.current = new Audio();
+      }
+
+      const audio = audioPlayerRef.current;
+      audio.src = audioUrl;
+
+      // Handle playback events
+      return new Promise((resolve, reject) => {
+        audio.onended = () => {
+          console.log("✅ Speech playback completed");
+          URL.revokeObjectURL(audioUrl);
+          isSpeakingRef.current = false;
+          setIsSpeaking(false);
+          resolve();
+        };
+
+        audio.onerror = (error) => {
+          console.error("Audio playback error:", error);
+          URL.revokeObjectURL(audioUrl);
+          isSpeakingRef.current = false;
+          setIsSpeaking(false);
+          reject(error);
+        };
+
+        audio.play().catch(err => {
+          console.error("Failed to play audio:", err);
+          URL.revokeObjectURL(audioUrl);
+          isSpeakingRef.current = false;
+          setIsSpeaking(false);
+          reject(err);
+        });
+      });
+
+    } catch (error) {
+      console.error("Text-to-Speech error:", error);
+      isSpeakingRef.current = false;
+      setIsSpeaking(false);
+      // Don't throw - just log and continue
+    }
+  }, []);
+
+  // Stop any ongoing speech
+  const stopSpeaking = useCallback(() => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.currentTime = 0;
+    }
+    isSpeakingRef.current = false;
+    setIsSpeaking(false);
   }, []);
 
   // Pause/resume listening
@@ -139,6 +265,9 @@ function DiscussionRoom() {
       pauseListening();
       setIsAssistantTyping(true);
 
+      // Stop any ongoing speech
+      stopSpeaking();
+
       // Build clean history for AI
       const aiHistory = buildAIHistory(currentHistory);
 
@@ -158,6 +287,10 @@ function DiscussionRoom() {
       await typeOutAssistant(assistantText);
       console.log("✅ AI response completed");
 
+      // Now speak the response using TTS
+      const expertName = expert?.name || discussionRoomData?.expertName || "";
+      await speakText(assistantText, expertName);
+
     } catch (err) {
       console.error("AI response error:", err);
       setConversationHistory(prev => [
@@ -167,13 +300,15 @@ function DiscussionRoom() {
       setIsAssistantTyping(false);
     } finally {
       processingResponseRef.current = false;
-      if (transcriber.current) {
+      // Only resume if not currently speaking
+      if (transcriber.current && !isSpeakingRef.current) {
         resumeListening();
       }
     }
-  }, [discussionRoomData, buildAIHistory, pauseListening, resumeListening, typeOutAssistant]);
+  }, [discussionRoomData, expert, buildAIHistory, pauseListening, resumeListening, typeOutAssistant, speakText, stopSpeaking]);
 
   const connectToServer = async () => {
+    setAllowGenerate(false);
     setIsConnecting(true);
     setConnectionStatus("Connecting...");
     isListeningPausedRef.current = false;
@@ -214,9 +349,9 @@ function DiscussionRoom() {
 
           // Process final text when turn ends
           if (isFinal && finalText) {
-            // Guard: don't process if already handling a response
-            if (processingResponseRef.current) {
-              console.log("⏭️ Already processing response, ignoring new turn");
+            // Guard: don't process if already handling a response OR if AI is speaking
+            if (processingResponseRef.current || isSpeakingRef.current) {
+              console.log("⏭️ Already processing or AI speaking, ignoring new turn");
               return;
             }
 
@@ -400,6 +535,9 @@ function DiscussionRoom() {
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
+
+    // Stop any ongoing speech
+    stopSpeaking();
   };
 
   const disconnect = async () => {
@@ -413,17 +551,26 @@ function DiscussionRoom() {
         await transcriber.current.close();
         transcriber.current = null;
       }
+
+      await updateConversation({ 
+        id: roomId, 
+        conversation: conversationHistory 
+      });
+      
     } catch (err) {
       console.error("disconnect error:", err);
     } finally {
       setEnableMic(false);
       setConnectionStatus("Disconnected");
+      setAllowGenerate(true);
       setLivePartial("");
       processingResponseRef.current = false;
       isListeningPausedRef.current = false;
+      isSpeakingRef.current = false;
       lastFinalizedRef.current = { text: "", timestamp: 0 };
       setIsConnecting(false);
       setIsAssistantTyping(false);
+      setIsSpeaking(false);
     }
   };
 
@@ -434,13 +581,45 @@ function DiscussionRoom() {
     };
   }, []);
 
+  // Status color helper
+  const getStatusColor = (status) => {
+    const s = String(status || "");
+    if (s.startsWith("Connected — Paused")) return "bg-orange-500";
+    if (s.startsWith("Connected")) return "bg-green-500";
+    if (s.startsWith("Connecting") || s.startsWith("Disconnecting")) return "bg-orange-500";
+    if (s.startsWith("Error") || s === "Disconnected") return "bg-red-500";
+    return "bg-gray-400";
+  };
+
   return (
     <div className="-mt-12 min-h-screen bg-white px-4 pt-8">
-      <h2 className="text-xl font-bold mb-6">Topic Base Lecture</h2>
-
-      {/* Connection Status */}
-      <div className="mb-4 p-3 bg-gray-100 rounded-lg">
-        <span className="font-semibold">Status:</span> {connectionStatus}
+      {notification && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-md shadow-lg text-white ${notification.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+          <div className="flex items-center gap-3">
+            <span className="font-medium text-sm">{notification.message}</span>
+            <button
+              className="text-white/90 text-xs underline"
+              onClick={() => setNotification(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-xl font-bold">
+          {discussionRoomData ? `${discussionRoomData.coachingOption}: ${discussionRoomData.topic}` : "Loading..."}
+        </h2>
+        <div className="p-2 bg-gray-100 rounded-lg flex items-center gap-2 text-sm">
+          <span className={`inline-block w-2.5 h-2.5 rounded-full ${getStatusColor(connectionStatus)}`}></span>
+          <span className="font-semibold">Status:</span> {connectionStatus}
+          {isSpeaking && (
+            <span className="flex items-center gap-1 text-blue-600">
+              <span className="animate-pulse">🔊</span>
+              <span>AI Speaking</span>
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
@@ -452,12 +631,15 @@ function DiscussionRoom() {
               alt="Avatar"
               width={200}
               height={200}
-              className="h-[80px] w-[80px] rounded-full object-cover animate-pulse"
+              className={`h-[80px] w-[80px] rounded-full object-cover ${isSpeaking ? 'animate-pulse ring-4 ring-blue-400' : 'animate-pulse'}`}
             />
           ) : (
-            <div className="h-[80px] w-[80px] rounded-full bg-gray-300 animate-pulse" />
+            <div className={`h-[80px] w-[80px] rounded-full bg-gray-300 ${isSpeaking ? 'animate-pulse ring-4 ring-blue-400' : 'animate-pulse'}`} />
           )}
           <h2 className="text-gray-500 mt-2">{expert?.name || "Loading..."}</h2>
+          {isSpeaking && (
+            <div className="mt-2 text-sm text-blue-600 font-medium">Speaking...</div>
+          )}
           <div className="p-5 bg-gray-200 px-10 rounded-lg absolute bottom-10 right-10">
             <UserButton />
           </div>
@@ -466,7 +648,7 @@ function DiscussionRoom() {
         {/* Chat Section */}
         <div
           ref={chatContainerRef}
-          className="h-[60vh] bg-secondary border rounded-4xl flex flex-col p-4 overflow-y-auto"
+          className="h-[60vh] bg-secondary border rounded-4xl flex flex-col p-4 overflow-y-auto no-scrollbar"
         >
           <h2 className="font-semibold mb-4">Chat Section</h2>
           <div className="flex-1 space-y-2">
@@ -542,10 +724,13 @@ function DiscussionRoom() {
             <div ref={lastMessageEndRef} />
           </div>
         </div>
+
+        {/* Generate Notes/Feedback below chat */}
+        {/* Buttons moved to a separate centered row below */}
       </div>
 
-      {/* Connection Controls */}
-      <div className="w-full flex items-center justify-center mt-8 gap-4">
+      {/* Centered Controls Row */}
+      <div className="w-full flex items-center justify-center mt-8 gap-3">
         {!enableMic && !isConnecting ? (
           <Button onClick={connectToServer}>Connect</Button>
         ) : isConnecting ? (
@@ -553,6 +738,11 @@ function DiscussionRoom() {
         ) : (
           <Button variant="destructive" onClick={disconnect}>
             Disconnect
+          </Button>
+        )}
+        {allowGenerate && (
+          <Button onClick={handleGenerateNotes} disabled={isGeneratingNotes || conversationHistory.length === 0}>
+            {isGeneratingNotes ? 'Generating…' : 'Generate Notes/Feedback'}
           </Button>
         )}
       </div>

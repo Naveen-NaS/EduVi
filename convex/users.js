@@ -16,18 +16,18 @@ export const CreateUser = mutation({
 
     // If not then add new user
     if (userData?.length == 0) {
-        const data = {
-            name: args.name,
-            email: args.email,
-            credits: 50000,
-            subscriptionId: Math.random().toString(36).substring(2, 15),
-        }
+      const data = {
+        name: args.name,
+        email: args.email,
+        credits: 50000,
+        subscriptionId: Math.random().toString(36).substring(2, 15),
+      }
 
-        await ctx.db.insert("users", { 
-            ...data
-        });
+      const insertedId = await ctx.db.insert("users", { 
+        ...data
+      });
 
-        return data;
+      return { _id: insertedId, ...data };
     }
 
     return userData[0];

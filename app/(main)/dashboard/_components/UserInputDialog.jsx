@@ -1,5 +1,5 @@
 
-import React from 'react'
+import React, { useContext } from 'react'
 import Image from 'next/image';
 
 import {
@@ -20,8 +20,9 @@ import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { UserContext } from '@/app/_context/UserContext';
 
 function UserInputDialog({children, coachingOption}) {
   const [selectedExpert, setSelectedExpert] = useState(null);
@@ -32,6 +33,8 @@ function UserInputDialog({children, coachingOption}) {
   const createDiscussionRoom = useMutation(api.DiscussionRoom.createNewRoom);
   const [loading, setLoading] = useState(false);
 
+  const { userData: currentUser } = useContext(UserContext);
+
   const router = useRouter();
 
   const onClickNext = async () => {
@@ -40,6 +43,7 @@ function UserInputDialog({children, coachingOption}) {
         topic: topic,
         coachingOption: coachingOption?.name,
         expertName: selectedExpertName,
+        uid: currentUser?._id
     });
     setLoading(false);
     setOpenDialog(false);
@@ -91,7 +95,7 @@ function UserInputDialog({children, coachingOption}) {
                 <DialogClose asChild>
                     <Button variant={'ghost'}>Cancel</Button>
                 </DialogClose>
-                <Button disabled={!(topic.trim().length > 0 && selectedExpert !== null) || loading} onClick={onClickNext}>
+                <Button disabled={!(topic.trim().length > 0 && selectedExpert !== null && currentUser?._id) || loading} onClick={onClickNext}>
                     {loading && <LoaderCircle className='animate-spin' />}
                     Next</Button>
               </div>
