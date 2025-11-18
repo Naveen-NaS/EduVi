@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "EduVi • AI Voice Agent",
-  description: "AI voice agent for education",
+  title: "EduVi - AI voice agent for education",
+  description: "EduVi - AI voice agent for education",
 };
 
 export default function RootLayout({ children }) {

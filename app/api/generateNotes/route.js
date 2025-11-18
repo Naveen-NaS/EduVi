@@ -95,10 +95,23 @@ No markdown or extra commentary. Output only JSON.`;
     }
 
     const client = new ConvexHttpClient(convexUrl);
+    // Persist feedback
     await client.mutation(api.DiscussionRoom.updateFeedback, {
       id: roomId,
       feedback: feedbackPayload,
     });
+
+    // Also persist conversation to ensure read-only views can render chats
+    if (Array.isArray(conversation)) {
+      try {
+        await client.mutation(api.DiscussionRoom.updateConversation, {
+          id: roomId,
+          conversation,
+        });
+      } catch (e) {
+        console.warn("updateConversation from generateNotes failed:", e?.message || e);
+      }
+    }
 
     return NextResponse.json({ success: true, feedback: feedbackPayload });
   } catch (err) {

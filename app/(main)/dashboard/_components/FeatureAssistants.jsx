@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { useUser } from "@stackframe/stack";
 import Image from "next/image";
 import React from "react";
@@ -26,7 +27,9 @@ function FeatureAssistants() {
             </h1>
           </div>
 
-          <Button>Profile</Button>
+          <Button asChild>
+            <Link href="/handler/account-settings">Profile</Link>
+          </Button>
         </div>
 
         {/* Cards Grid */}

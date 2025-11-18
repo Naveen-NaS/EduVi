@@ -70,7 +70,17 @@ function Feedback() {
             </div>
             <div className='flex items-center gap-4'>
               <span className='text-sm text-gray-500'>{relativeTime(item._creationTime)}</span>
-              <Button variant='secondary' onClick={() => router.push(`/feedback/${item._id}`)}>View Feedback</Button>
+              <Button
+                variant='secondary'
+                className='
+                  opacity-100 md:opacity-0 md:pointer-events-none
+                  md:group-hover:opacity-100 md:group-hover:pointer-events-auto
+                  transition-all duration-200 translate-y-0 md:translate-y-1 md:group-hover:translate-y-0
+                '
+                onClick={() => router.push(`/feedback/${item._id}`)}
+              >
+                View Feedback
+              </Button>
             </div>
           </div>
         ))}
